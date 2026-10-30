@@ -23,7 +23,7 @@ struct HomeView: View {
 
     var body: some View {
         ZStack {
-            browser.atmosphere.color.gradient
+            Rectangle().fill(browser.atmosphere.color.gradient)
             if let wallpaper = browser.wallpaper {
                 GeometryReader { bounds in
                     Image(uiImage: wallpaper).resizable().scaledToFill().frame(width: bounds.size.width, height: bounds.size.height).clipped()

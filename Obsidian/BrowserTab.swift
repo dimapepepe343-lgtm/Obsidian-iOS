@@ -40,12 +40,30 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable, WKNavigationDe
         view.navigationDelegate = self
         view.uiDelegate = self
         observations = [
-            view.observe(\.estimatedProgress, options: [.new]) { [weak self] view, _ in self?.progress = view.estimatedProgress },
-            view.observe(\.isLoading, options: [.new]) { [weak self] view, _ in self?.isLoading = view.isLoading },
-            view.observe(\.title, options: [.new]) { [weak self] view, _ in self?.title = view.title ?? view.url?.host ?? "Страница" },
-            view.observe(\.url, options: [.new]) { [weak self] view, _ in self?.url = view.url },
-            view.observe(\.canGoBack, options: [.new]) { [weak self] view, _ in self?.canGoBack = view.canGoBack },
-            view.observe(\.canGoForward, options: [.new]) { [weak self] view, _ in self?.canGoForward = view.canGoForward }
+            view.observe(\.estimatedProgress, options: [.new]) { [weak self] view, _ in
+                let value = view.estimatedProgress
+                Task { @MainActor [weak self] in self?.progress = value }
+            },
+            view.observe(\.isLoading, options: [.new]) { [weak self] view, _ in
+                let value = view.isLoading
+                Task { @MainActor [weak self] in self?.isLoading = value }
+            },
+            view.observe(\.title, options: [.new]) { [weak self] view, _ in
+                let value = view.title ?? view.url?.host ?? "Страница"
+                Task { @MainActor [weak self] in self?.title = value }
+            },
+            view.observe(\.url, options: [.new]) { [weak self] view, _ in
+                let value = view.url
+                Task { @MainActor [weak self] in self?.url = value }
+            },
+            view.observe(\.canGoBack, options: [.new]) { [weak self] view, _ in
+                let value = view.canGoBack
+                Task { @MainActor [weak self] in self?.canGoBack = value }
+            },
+            view.observe(\.canGoForward, options: [.new]) { [weak self] view, _ in
+                let value = view.canGoForward
+                Task { @MainActor [weak self] in self?.canGoForward = value }
+            }
         ]
         webView = view
         return view

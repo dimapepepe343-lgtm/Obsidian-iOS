@@ -1,0 +1,99 @@
+name: Build Obsidian for iPhone
+
+on:
+  push:
+    branches: [main, obsidian-ios]
+    paths:
+      - 'Obsidian/**'
+      - 'Obsidian.xcodeproj/**'
+      - 'ObsidianUITests/**'
+      - 'scripts/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: obsidian-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  iphone:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build an actual iPhone app
+        run: |
+          set -o pipefail
+          xcodebuild -project Obsidian.xcodeproj -scheme Obsidian \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            build | tee build-device.log
+
+      - name: Package and verify unsigned ARM64 IPA
+        run: |
+          python3 scripts/package_ipa.py \
+            build/device/Build/Products/Release-iphoneos/Obsidian.app \
+            build/Obsidian-unsigned.ipa
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project Obsidian.xcodeproj -scheme Obsidian \
+            -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/simulator CODE_SIGNING_ALLOWED=NO \
+            build | tee build-simulator.log
+
+      - name: Launch on iPhone simulator and capture the home screen
+        run: |
+          set -euo pipefail
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if x["name"].startswith("iPhone")))')
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" build/simulator/Build/Products/Debug-iphonesimulator/Obsidian.app
+          xcrun simctl launch "$DEVICE" com.obsidian.browser.ios
+          sleep 6
+          xcrun simctl io "$DEVICE" screenshot build/Obsidian-iPhone.png
+          echo "SIMULATOR_DEVICE=$DEVICE" >> "$GITHUB_ENV"
+
+      - name: Verify search, webpage host and new tabs in the real simulator UI
+        run: |
+          set -o pipefail
+          xcodebuild -project Obsidian.xcodeproj -scheme Obsidian \
+            -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" \
+            -derivedDataPath build/simulator -resultBundlePath build/UITests.xcresult \
+            CODE_SIGNING_ALLOWED=NO test | tee test-ui.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Obsidian-iPhone
+          path: |
+            build/Obsidian-unsigned.ipa
+            build/Obsidian-iPhone.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish a downloadable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "ios-build-${GITHUB_RUN_NUMBER}" \
+            build/Obsidian-unsigned.ipa build/Obsidian-iPhone.png \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Obsidian iPhone · build ${GITHUB_RUN_NUMBER} · unsigned" \
+            --notes-file scripts/release-notes.md
+
+      - name: Preserve build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Obsidian-build-logs
+          path: '*-*.log'
+          if-no-files-found: ignore
+          retention-days: 7
